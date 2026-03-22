@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Native Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Run native tests
+        run: pio test -e native
+
+  build:
+    name: Firmware Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Clone FreematicsPlus library
+        run: git clone --depth 1 https://github.com/stanleyhuangyc/Freematics.git /tmp/Freematics
+      - name: Configure FreematicsPlus path
+        run: |
+          # lib_extra_dirs must point to the PARENT directory that CONTAINS libraries
+          # PlatformIO scans this directory for subdirectories with library.json/library.properties
+          sed -i 's|lib_extra_dirs =|lib_extra_dirs = /tmp/Freematics/libraries|' platformio.ini
+      - name: Build firmware
+        run: pio run -e freematics_one_plus
