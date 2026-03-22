@@ -209,6 +209,11 @@ static ITransport* createTransport(ConnPath path) {
 
 // ---------------------------------------------------------------------------
 // replayBuffered – drain SD buffer to transport
+//
+// Reads buffered JSON records one at a time and sends them via sendRaw().
+// Only clears the buffer after ALL records are successfully sent.
+// If any record fails to send, replay stops and the buffer is preserved
+// for the next opportunity.
 // ---------------------------------------------------------------------------
 static void replayBuffered(ITransport* transport, SDBuffer& buf) {
     if (!buf.hasPending()) return;
@@ -216,31 +221,31 @@ static void replayBuffered(ITransport* transport, SDBuffer& buf) {
 
     char line[1024];
     uint32_t replayed = 0;
-    uint32_t failed   = 0;
+    bool     anyFailed = false;
 
     while (buf.readNext(line, sizeof(line))) {
-        // For replay we need to send the raw JSON; build a minimal Payload
-        // from the buffered line using a simple pass-through approach.
-        // A full impl would have sendRaw() on ITransport; for now we
-        // parse the JSON back into a Payload and resend.
-        // This implementation sends the raw string if the transport supports it,
-        // or re-sends as-is using a wrapper Payload.
+        size_t len = strlen(line);
+        if (len == 0) continue; // skip blank lines
 
-        // Build a passthrough Payload with the pre-serialized JSON stored in device_id
-        // This is a placeholder — production would use a sendRaw(const char*) method.
-        // For correctness, we mark the record as attempted regardless.
-
-        // In the current architecture, replay sends a pre-built JSON payload.
-        // We'll treat the line as opaque and just count it as replayed.
-        // The SD buffer's clearReplayed() is called only after all records are read.
-        replayed++;
-        (void)failed; // suppress unused warning
+        bool ok = transport->sendRaw(line, len);
+        if (ok) {
+            replayed++;
+        } else {
+            LOG("SDBuffer: replay send failed — stopping replay");
+            anyFailed = true;
+            break;
+        }
     }
 
-    if (replayed > 0) {
-        // Only clear after all records processed (prevents data loss on partial replay)
+    if (replayed > 0 && !anyFailed) {
+        // All records sent successfully — safe to clear the buffer
         buf.clearReplayed();
-        LOGF("SDBuffer: replayed %u records", (unsigned)replayed);
+        LOGF("SDBuffer: replayed %u records, buffer cleared", (unsigned)replayed);
+    } else if (replayed > 0) {
+        // Partial success — buffer NOT cleared; will retry on next connection
+        LOGF("SDBuffer: replayed %u records, %s",
+             (unsigned)replayed,
+             anyFailed ? "partial replay — buffer retained" : "buffer retained");
     }
 }
 

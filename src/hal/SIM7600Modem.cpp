@@ -75,9 +75,11 @@ int SIM7600Modem::httpPost(const char* url, const char* body, size_t bodyLen,
         return -1;
     }
 
-    // Enable SSL
+    // Enable SSL — required for HTTPS; abort if this fails
     if (!sendAT("AT+HTTPSSL=1", "OK", 3000)) {
-        LOG("Modem: HTTPSSL enable failed");
+        LOG("Modem: HTTPSSL enable failed — aborting to prevent plaintext transmission");
+        sendAT("AT+HTTPTERM", "OK", 3000);
+        return -1;
     }
 
     // Content-Type
@@ -140,11 +142,22 @@ bool SIM7600Modem::tcpConnect(const char* host, uint16_t port, bool useTls) {
     // Use CSSLCFG to enable TLS if required
     if (useTls) {
         // TLS 1.2 only (sslversion 3 = TLS 1.2)
-        sendAT("AT+CSSLCFG=\"sslversion\",0,3", "OK", 3000);
+        if (!sendAT("AT+CSSLCFG=\"sslversion\",0,3", "OK", 3000)) {
+            LOG("Modem: TLS version config failed — aborting secure connect");
+            return false;
+        }
         // NOTE: ignorertctime=1 accepts certificates regardless of device clock.
         // This is needed when the ESP32 clock is not yet NTP-synced on first boot.
         // For maximum security, sync NTP before connecting and set ignorertctime=0.
-        sendAT("AT+CSSLCFG=\"ignorertctime\",1,1", "OK", 3000);
+        if (!sendAT("AT+CSSLCFG=\"ignorertctime\",1,1", "OK", 3000)) {
+            LOG("Modem: TLS cert time config failed — aborting secure connect");
+            return false;
+        }
+        // Enable SSL for this connection context
+        if (!sendAT("AT+CCHSSLCFG=0,1", "OK", 3000)) {
+            // Non-fatal: older firmware may not support this command
+            LOG("Modem: CCHSSLCFG not supported, continuing");
+        }
     }
     char cmd[128];
     snprintf(cmd, sizeof(cmd), "AT+CIPOPEN=0,\"TCP\",\"%s\",%u", host, port);

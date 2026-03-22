@@ -33,6 +33,7 @@ public:
 
     bool begin() override;
     bool send(const Payload& payload) override;
+    bool sendRaw(const char* json, size_t len) override;
     bool isConnected() override;
     void end() override;
     const char* getName() override { return "Webhook"; }

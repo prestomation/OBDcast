@@ -14,9 +14,13 @@ public:
     // Returns true on success.
     virtual bool begin() = 0;
 
-    // Send a telemetry payload.
+    // Send a telemetry payload (serializes to JSON internally).
     // Returns true on success.
     virtual bool send(const Payload& payload) = 0;
+
+    // Send a pre-serialized JSON payload (used for SD buffer replay).
+    // Returns true on success.
+    virtual bool sendRaw(const char* json, size_t len) = 0;
 
     // Returns true if the transport is connected/ready to send.
     virtual bool isConnected() = 0;

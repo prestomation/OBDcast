@@ -60,6 +60,19 @@ bool WebhookTransport::send(const Payload& payload) {
 }
 
 // ---------------------------------------------------------------------------
+// sendRaw – send pre-serialized JSON (used for SD buffer replay)
+// ---------------------------------------------------------------------------
+bool WebhookTransport::sendRaw(const char* json, size_t len) {
+    const char* authToken = (strlen(WEBHOOK_AUTH_TOKEN) > 0) ? WEBHOOK_AUTH_TOKEN : nullptr;
+    if (_wifiMode) {
+        return sendViaWiFi(json, len, authToken);
+    } else {
+        int code = _modem->httpPost(WEBHOOK_URL, json, len, authToken);
+        return (code >= 200 && code < 300);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // sendViaWiFi – parse URL, build HTTP/1.1 request, check response code
 // ---------------------------------------------------------------------------
 bool WebhookTransport::sendViaWiFi(const char* jsonBuf, size_t jsonLen,

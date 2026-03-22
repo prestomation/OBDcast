@@ -168,6 +168,22 @@ bool MQTTTransport::send(const Payload& payload) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// sendRaw – send pre-serialized JSON (used for SD buffer replay)
+// ---------------------------------------------------------------------------
+bool MQTTTransport::sendRaw(const char* json, size_t len) {
+    char topic[128];
+    makeTopic(topic, sizeof(topic), "telemetry");
+
+    if (_wifiMode) {
+        if (!_mqtt.connected()) connectViaWiFi();
+        _mqtt.loop();
+        return _mqtt.publish(topic, (const uint8_t*)json, (unsigned int)len, false);
+    } else {
+        return publishViaCellular(topic, json, len);
+    }
+}
+
 bool MQTTTransport::publishViaCellular(const char* topic, const char* payload,
                                         size_t payloadLen) {
     size_t topicLen  = strlen(topic);
