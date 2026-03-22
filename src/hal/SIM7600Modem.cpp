@@ -25,7 +25,7 @@ static bool sanitizeForAT(const char* in, char* out, size_t outLen) {
 // ---------------------------------------------------------------------------
 bool SIM7600Modem::begin() {
     LOG("Modem: powering on");
-    if (!_modem.begin()) {
+    if (!_cell.begin(&_hal)) {
         LOG("Modem: begin() failed");
         return false;
     }
@@ -37,29 +37,10 @@ bool SIM7600Modem::begin() {
 // connect – register on network and activate PDP context
 // ---------------------------------------------------------------------------
 bool SIM7600Modem::connect() {
-    char safeApn[64];
-    if (!sanitizeForAT(CELLULAR_APN, safeApn, sizeof(safeApn))) {
-        LOG("Modem: APN contains invalid characters");
+    if (!_cell.setup(CELLULAR_APN)) {
+        LOG("Modem: network setup failed");
         return false;
     }
-    char apnCmd[96];
-    int apnLen = snprintf(apnCmd, sizeof(apnCmd), "AT+CGDCONT=1,\"IP\",\"%s\"", safeApn);
-    if (apnLen < 0 || (size_t)apnLen >= sizeof(apnCmd)) {
-        LOG("Modem: APN command truncated");
-        return false;
-    }
-
-    if (!sendAT(apnCmd, "OK", 5000)) {
-        LOG("Modem: APN config failed");
-        return false;
-    }
-
-    // Activate PDP context
-    if (!sendAT("AT+CGACT=1,1", "OK", 30000)) {
-        LOG("Modem: PDP activation failed");
-        return false;
-    }
-
     LOG("Modem: connected");
     _connected = true;
     return true;
@@ -74,7 +55,7 @@ void SIM7600Modem::disconnect() {
 }
 
 void SIM7600Modem::powerOff() {
-    _modem.end();
+    _cell.end();
     _connected = false;
 }
 
@@ -170,16 +151,16 @@ int SIM7600Modem::httpPost(const char* url, const char* body, size_t bodyLen,
         return -1;
     }
 
-    // Write body data directly to modem serial
-    _modem.write((const uint8_t*)body, bodyLen);
+    // Write body data via xBee UART
+    _hal.xbWrite((const char*)body, (int)bodyLen);
     delay(500);
 
     // Execute POST (method 1) — wait for +HTTPACTION response
     // Format: +HTTPACTION: 1,<status>,<data_len>
     char actionResp[64] = {};
-    _modem.sendCommand("AT+HTTPACTION=1");
-    if (!_modem.receiveResponse(actionResp, sizeof(actionResp), 30000) ||
-        strstr(actionResp, "+HTTPACTION:") == nullptr) {
+    _hal.xbWrite("AT+HTTPACTION=1\r");
+    int recvLen = _hal.xbReceive(actionResp, sizeof(actionResp) - 1, 30000);
+    if (recvLen <= 0 || strstr(actionResp, "+HTTPACTION:") == nullptr) {
         LOG("Modem: HTTPACTION timeout or error");
         sendAT("AT+HTTPTERM", "OK", 3000);
         return -1;
@@ -245,11 +226,12 @@ int SIM7600Modem::tcpSend(const uint8_t* data, size_t len) {
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "AT+CIPSEND=0,%u", (unsigned)len);
     if (!sendAT(cmd, ">", 5000)) return -1;
-    return (int)_modem.write(data, len);
+    _hal.xbWrite((const char*)data, (int)len);
+    return (int)len;
 }
 
 int SIM7600Modem::tcpRecv(uint8_t* buf, size_t bufLen, uint32_t timeoutMs) {
-    return _modem.receive(buf, (int)bufLen, timeoutMs);
+    return _hal.xbRead((char*)buf, (int)bufLen, (unsigned int)timeoutMs);
 }
 
 void SIM7600Modem::tcpClose() {
@@ -260,10 +242,7 @@ void SIM7600Modem::tcpClose() {
 // Signal / status
 // ---------------------------------------------------------------------------
 int SIM7600Modem::getSignalDbm() {
-    // AT+CSQ returns signal quality; convert to approximate dBm
-    // CSQ 0-31: dBm = (CSQ * 2) - 113
-    // Not fully implemented here; return last known value
-    return -99; // placeholder
+    return _cell.RSSI();
 }
 
 bool SIM7600Modem::isConnected() {
@@ -271,14 +250,16 @@ bool SIM7600Modem::isConnected() {
 }
 
 // ---------------------------------------------------------------------------
-// sendAT helper
+// sendAT helper — writes raw AT command via xBee UART, waits for expected
 // ---------------------------------------------------------------------------
 bool SIM7600Modem::sendAT(const char* cmd, const char* expected,
                             uint32_t timeoutMs) {
-    _modem.sendCommand(cmd);
+    char fullCmd[132];
+    snprintf(fullCmd, sizeof(fullCmd), "%s\r", cmd);
+    _hal.xbWrite(fullCmd);
     char resp[128] = {};
-    return _modem.receiveResponse(resp, sizeof(resp), timeoutMs) &&
-           strstr(resp, expected) != nullptr;
+    int len = _hal.xbReceive(resp, sizeof(resp) - 1, (unsigned int)timeoutMs);
+    return (len > 0) && (strstr(resp, expected) != nullptr);
 }
 
 #endif // !NATIVE_BUILD

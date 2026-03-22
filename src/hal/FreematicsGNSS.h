@@ -6,13 +6,12 @@
 #include <FreematicsPlus.h>
 
 // ---------------------------------------------------------------------------
-// FreematicsGNSS – IGNSS implementation backed by SIM7600 GNSS engine
-// via FreematicsPlus (CellularSIM7600 / GPS methods)
+// FreematicsGNSS – IGNSS implementation backed by FreematicsESP32 GPS engine
 // ---------------------------------------------------------------------------
 
 class FreematicsGNSS : public IGNSS {
 public:
-    explicit FreematicsGNSS(CellularSIM7600& modem) : _modem(modem) {}
+    explicit FreematicsGNSS(FreematicsESP32& hal) : _hal(hal) {}
 
     bool begin() override;
     bool update() override;
@@ -22,7 +21,7 @@ public:
     bool hasFix() override;
 
 private:
-    CellularSIM7600& _modem;
+    FreematicsESP32& _hal;
     GPS_DATA         _gpsData{};
     bool             _hasFix = false;
 };

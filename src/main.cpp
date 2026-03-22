@@ -90,7 +90,7 @@ void setup() {
     // case (which does not return — ESP32 resets on wake).
     FreematicsGNSS*     gnssPtr  = nullptr;
     if (gModemOk) {
-        gnssPtr = new FreematicsGNSS(gModem->modem());
+        gnssPtr = new FreematicsGNSS(hal);
         gnssPtr->begin();
     }
 

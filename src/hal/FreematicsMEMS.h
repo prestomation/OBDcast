@@ -7,7 +7,7 @@
 #include <math.h>
 
 // ---------------------------------------------------------------------------
-// FreematicsMEMS – IMEMS implementation using FreematicsPlus MEMS_ICC42688
+// FreematicsMEMS – IMEMS implementation using FreematicsPlus ICM_42627
 // ---------------------------------------------------------------------------
 
 class FreematicsMEMSImpl : public IMEMS {
@@ -19,8 +19,8 @@ public:
     float getMagnitude() override;
 
 private:
-    MEMS_ICC42688 _mems;
-    float         _ax = 0.f, _ay = 0.f, _az = 0.f;
+    ICM_42627 _mems;
+    float     _ax = 0.f, _ay = 0.f, _az = 0.f;
 };
 
 #endif // !NATIVE_BUILD

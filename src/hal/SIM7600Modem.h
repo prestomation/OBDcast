@@ -6,11 +6,11 @@
 #include <FreematicsPlus.h>
 
 // ---------------------------------------------------------------------------
-// SIM7600Modem – IModem implementation wrapping CellularSIM7600 AT commands
+// SIM7600Modem – IModem implementation wrapping FreematicsPlus CellSIMCOM
 //
 // TLS offload strategy:
-//   - HTTPS: AT+HTTPINIT / AT+HTTPPARA / AT+HTTPSSL=1 / AT+HTTPACTION
-//   - MQTT:  AT+CMQTTSTART / AT+CMQTTCONNECT / AT+CMQTTPUB
+//   - HTTPS: CellHTTP via CellSIMCOM AT commands
+//   - TCP:   xbWrite/xbReceive raw AT via FreematicsESP32
 // ---------------------------------------------------------------------------
 
 class SIM7600Modem : public IModem {
@@ -33,16 +33,12 @@ public:
     int  getSignalDbm() override;
     bool isConnected() override;
 
-    // Expose the underlying modem for GNSS / MQTT direct use
-    CellularSIM7600& modem() { return _modem; }
-
 private:
-    FreematicsESP32&  _hal;
-    CellularSIM7600   _modem;
-    bool              _connected = false;
+    FreematicsESP32& _hal;
+    CellSIMCOM       _cell;
+    bool             _connected = false;
 
-    bool sendAT(const char* cmd, const char* expected,
-                uint32_t timeoutMs = 5000);
+    bool sendAT(const char* cmd, const char* expected, uint32_t timeoutMs = 5000);
 };
 
 #endif // !NATIVE_BUILD

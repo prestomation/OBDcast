@@ -4,8 +4,8 @@
 #include "../config.h"
 
 bool FreematicsGNSS::begin() {
-    // Enable GPS on the SIM7600 modem
-    if (!_modem.gpsOn()) {
+    // Enable GPS on the hardware
+    if (!_hal.gpsBegin()) {
         LOG("GNSS: failed to enable GPS");
         return false;
     }
@@ -14,10 +14,10 @@ bool FreematicsGNSS::begin() {
 }
 
 bool FreematicsGNSS::update() {
-    GPS_DATA g{};
-    if (_modem.getGPSInfo(g)) {
-        _gpsData = g;
-        _hasFix  = (g.satellites >= 1);
+    GPS_DATA* pgd = nullptr;
+    if (_hal.gpsGetData(&pgd) && pgd) {
+        _gpsData = *pgd;
+        _hasFix  = (_gpsData.sat >= 1);
         return _hasFix;
     }
     _hasFix = false;
@@ -31,10 +31,10 @@ bool FreematicsGNSS::getLocation(float& lat, float& lon, float& alt,
     lat        = _gpsData.lat;
     lon        = _gpsData.lng;
     alt        = _gpsData.alt;
-    hdop       = _gpsData.hdop;
-    speedKph   = _gpsData.speed;
-    heading    = _gpsData.heading;
-    satellites = _gpsData.satellites;
+    hdop       = (float)_gpsData.hdop;
+    speedKph   = _gpsData.speed * 1.852f; // knots to km/h
+    heading    = (float)_gpsData.heading;
+    satellites = (int)_gpsData.sat;
     return true;
 }
 
