@@ -43,8 +43,10 @@
 // containing the HMAC-SHA256 hex digest of the JSON body.
 #define WEBHOOK_HMAC_SECRET ""
 
-// Convenience: HMAC is automatically enabled when a secret is provided.
-#define WEBHOOK_HMAC_ENABLED (sizeof(WEBHOOK_HMAC_SECRET) > 1)
+// Set to 1 to enable HMAC-SHA256 signing on webhook requests.
+// Must be 0 or 1 (not an expression) for use in #if preprocessor directives.
+// Set to 1 manually when WEBHOOK_HMAC_SECRET is non-empty.
+#define WEBHOOK_HMAC_ENABLED 0
 
 // =============================================================================
 // WIFI (optional — cellular fallback used when WiFi unavailable)
