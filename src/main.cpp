@@ -121,6 +121,10 @@ void setup() {
     // ---------------------------------------------------------------------------
     while (true) {
         float voltage = obd.readVoltage();
+        // Clamp to physically plausible vehicle voltage range before power manager logic
+        if (voltage < 5.0f || voltage > 20.0f) {
+            voltage = 0.0f; // treat implausible reading as no voltage (safe: triggers deep sleep)
+        }
         float ax = 0.f, ay = 0.f, az = 0.f;
         mems.getAccel(ax, ay, az);
         float magnitude = mems.getMagnitude();
@@ -137,6 +141,8 @@ void setup() {
             if (power.shouldCollect(DATA_INTERVAL_MS)) {
                 Payload p;
                 collector.collect(p, conn.getSignalDbm());
+                // Ignition is power-management policy — set from power state, not voltage
+                p.ignition = (power.getState() == PowerState::ACTIVE);
 
                 bool sent = false;
                 if (transport && transport->isConnected()) {
@@ -200,7 +206,13 @@ static ITransport* createTransport(ConnPath path) {
         static WiFiClientSecure wifiSecureClient;
 
         if (TRANSPORT_MODE == TRANSPORT_MQTT) {
+#if MQTT_USE_TLS
+            static WiFiClientSecure wifiSecureMqttClient;
+            wifiSecureMqttClient.setInsecure(); // broker auth provides security; CA cert can be set via setCACert()
+            return new MQTTTransport(wifiSecureMqttClient);
+#else
             return new MQTTTransport(wifiClient);
+#endif
         } else {
             return new WebhookTransport(wifiSecureClient,
                                         WebhookTransport::WiFiTag{});

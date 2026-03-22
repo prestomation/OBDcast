@@ -49,16 +49,17 @@ PowerState PowerManager::update(float voltage, bool motionDetected) {
         } else if (voltage < _activeThreshold) {
             _state = PowerState::STANDBY;
             _standbyEnteredMs = now();
+            _lastPingMs = now(); // prevent immediate ping on standby entry
         }
         break;
 
     case PowerState::STANDBY:
-        if (voltage >= _activeThreshold || motionDetected) {
+        if (voltage < _standbyThreshold) {
+            // Battery draining — go to deep sleep (critical voltage always wins over motion)
+            _state = PowerState::DEEP_SLEEP;
+        } else if (voltage >= _activeThreshold || motionDetected) {
             // Engine restarted or motion suggests someone got in
             _state = PowerState::ACTIVE;
-        } else if (voltage < _standbyThreshold) {
-            // Battery draining — go to deep sleep
-            _state = PowerState::DEEP_SLEEP;
         } else {
             // Check idle timeout
             uint32_t inStandby = now() - _standbyEnteredMs;

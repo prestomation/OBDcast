@@ -158,6 +158,33 @@ void test_should_collect_false_in_standby(void) {
     TEST_ASSERT_FALSE(pm.shouldCollect(10000UL));
 }
 
+// --- BUG 1: Motion must NOT prevent deep-sleep on critically low battery ---
+void test_motion_does_not_prevent_deep_sleep_on_critical_voltage(void) {
+    TestPowerManager pm(13.2f, 12.2f, 900000, 3600000);
+
+    pm.update(12.5f, false); // → STANDBY
+    TEST_ASSERT_EQUAL(PowerState::STANDBY, pm.getState());
+
+    // Motion detected but voltage is below standby threshold → must go to DEEP_SLEEP
+    PowerState s = pm.update(12.0f, true);
+    TEST_ASSERT_EQUAL(PowerState::DEEP_SLEEP, s);
+}
+
+// --- BUG 3: No immediate ping after long drive entry into standby ---
+void test_no_immediate_standby_ping_after_long_drive(void) {
+    TestPowerManager pm(13.2f, 12.2f, 5000UL, 3600000UL); // 5s ping interval
+
+    // Simulate 20 minutes of running time before entering standby
+    g_fakeMs = 20UL * 60UL * 1000UL; // 20 minutes
+
+    // Transition to STANDBY at t=20min
+    pm.update(12.5f, false); // → STANDBY
+    TEST_ASSERT_EQUAL(PowerState::STANDBY, pm.getState());
+
+    // First shouldSendStandbyPing() call should return false — not enough time since entry
+    TEST_ASSERT_FALSE(pm.shouldSendStandbyPing());
+}
+
 // --- stateName ---
 void test_state_names(void) {
     TEST_ASSERT_EQUAL_STRING("ACTIVE",     PowerManager::stateName(PowerState::ACTIVE));
@@ -182,6 +209,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_should_collect_timing);
     RUN_TEST(test_should_collect_false_in_standby);
     RUN_TEST(test_state_names);
+    RUN_TEST(test_motion_does_not_prevent_deep_sleep_on_critical_voltage);
+    RUN_TEST(test_no_immediate_standby_ping_after_long_drive);
 
     return UNITY_END();
 }

@@ -4,6 +4,37 @@
 #include <string.h>
 #include <stdio.h>
 
+#if WEBHOOK_HMAC_ENABLED
+  #include "mbedtls/md.h"
+#endif
+
+// ---------------------------------------------------------------------------
+// computeHmacSig – compute HMAC-SHA256 of payload, write lowercase hex into
+// sigHex (must be at least 65 bytes). No-op if WEBHOOK_HMAC_ENABLED is false.
+// ---------------------------------------------------------------------------
+static void computeHmacSig(const char* payload, size_t payloadLen, char sigHex[65]) {
+    sigHex[0] = '\0';
+#if WEBHOOK_HMAC_ENABLED
+    uint8_t hmacResult[32];
+    mbedtls_md_context_t ctx;
+    const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    mbedtls_md_init(&ctx);
+    if (mbedtls_md_setup(&ctx, info, 1) == 0) {
+        mbedtls_md_hmac_starts(&ctx,
+            (const uint8_t*)WEBHOOK_HMAC_SECRET, strlen(WEBHOOK_HMAC_SECRET));
+        mbedtls_md_hmac_update(&ctx, (const uint8_t*)payload, payloadLen);
+        mbedtls_md_hmac_finish(&ctx, hmacResult);
+    }
+    mbedtls_md_free(&ctx);
+    for (int i = 0; i < 32; i++) {
+        snprintf(sigHex + i * 2, 3, "%02x", hmacResult[i]);
+    }
+#else
+    (void)payload;
+    (void)payloadLen;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
@@ -45,12 +76,16 @@ bool WebhookTransport::send(const Payload& payload) {
         return false;
     }
 
+    char sigHex[65];
+    computeHmacSig(jsonBuf, jsonLen, sigHex);
+    const char* sig = (sigHex[0] != '\0') ? sigHex : nullptr;
+
     const char* authToken = (strlen(WEBHOOK_AUTH_TOKEN) > 0) ? WEBHOOK_AUTH_TOKEN : nullptr;
 
     if (_wifiMode) {
-        return sendViaWiFi(jsonBuf, jsonLen, authToken);
+        return sendViaWiFi(jsonBuf, jsonLen, authToken, sig);
     } else {
-        int code = _modem->httpPost(WEBHOOK_URL, jsonBuf, jsonLen, authToken);
+        int code = _modem->httpPost(WEBHOOK_URL, jsonBuf, jsonLen, authToken, sig);
         bool ok = (code >= 200 && code < 300);
         if (!ok) {
             LOGF("Webhook(Cellular): HTTP error %d", code);
@@ -63,11 +98,15 @@ bool WebhookTransport::send(const Payload& payload) {
 // sendRaw – send pre-serialized JSON (used for SD buffer replay)
 // ---------------------------------------------------------------------------
 bool WebhookTransport::sendRaw(const char* json, size_t len) {
+    char sigHex[65];
+    computeHmacSig(json, len, sigHex);
+    const char* sig = (sigHex[0] != '\0') ? sigHex : nullptr;
+
     const char* authToken = (strlen(WEBHOOK_AUTH_TOKEN) > 0) ? WEBHOOK_AUTH_TOKEN : nullptr;
     if (_wifiMode) {
-        return sendViaWiFi(json, len, authToken);
+        return sendViaWiFi(json, len, authToken, sig);
     } else {
-        int code = _modem->httpPost(WEBHOOK_URL, json, len, authToken);
+        int code = _modem->httpPost(WEBHOOK_URL, json, len, authToken, sig);
         return (code >= 200 && code < 300);
     }
 }
@@ -76,7 +115,7 @@ bool WebhookTransport::sendRaw(const char* json, size_t len) {
 // sendViaWiFi – parse URL, build HTTP/1.1 request, check response code
 // ---------------------------------------------------------------------------
 bool WebhookTransport::sendViaWiFi(const char* jsonBuf, size_t jsonLen,
-                                    const char* authToken) {
+                                    const char* authToken, const char* hmacSig) {
     // Parse host and path from WEBHOOK_URL (expects https://host/path)
     const char* url = WEBHOOK_URL;
     const char* schemeEnd = strstr(url, "://");
@@ -113,28 +152,28 @@ bool WebhookTransport::sendViaWiFi(const char* jsonBuf, size_t jsonLen,
 
     // Build headers first, then body — avoids fixed-size request buffer overflow
     // Send header
-    char header[512];
+    char header[640];
     int hlen;
+    // Build optional header lines into a small staging buffer
+    char optHeaders[256] = {};
+    int optLen = 0;
     if (authToken) {
-        hlen = snprintf(header, sizeof(header),
-            "POST %s HTTP/1.1\r\n"
-            "Host: %s\r\n"
-            "Content-Type: application/json\r\n"
-            "Authorization: Bearer %s\r\n"
-            "Content-Length: %u\r\n"
-            "Connection: close\r\n"
-            "\r\n",
-            path, host, authToken, (unsigned)jsonLen);
-    } else {
-        hlen = snprintf(header, sizeof(header),
-            "POST %s HTTP/1.1\r\n"
-            "Host: %s\r\n"
-            "Content-Type: application/json\r\n"
-            "Content-Length: %u\r\n"
-            "Connection: close\r\n"
-            "\r\n",
-            path, host, (unsigned)jsonLen);
+        optLen += snprintf(optHeaders + optLen, sizeof(optHeaders) - (size_t)optLen,
+            "Authorization: Bearer %s\r\n", authToken);
     }
+    if (hmacSig && hmacSig[0] != '\0') {
+        optLen += snprintf(optHeaders + optLen, sizeof(optHeaders) - (size_t)optLen,
+            "X-OBDcast-Signature: %s\r\n", hmacSig);
+    }
+    hlen = snprintf(header, sizeof(header),
+        "POST %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
+        "Content-Type: application/json\r\n"
+        "%s"
+        "Content-Length: %u\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        path, host, optHeaders, (unsigned)jsonLen);
 
     if (hlen < 0 || (size_t)hlen >= sizeof(header)) {
         LOG("Webhook(WiFi): header buffer overflow");

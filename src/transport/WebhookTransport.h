@@ -45,6 +45,7 @@ private:
     IModem*           _modem      = nullptr;
     bool              _connected  = false;
 
-    bool sendViaWiFi(const char* jsonBuf, size_t jsonLen, const char* authToken);
+    bool sendViaWiFi(const char* jsonBuf, size_t jsonLen, const char* authToken,
+                     const char* hmacSig = nullptr);
 #endif
 };

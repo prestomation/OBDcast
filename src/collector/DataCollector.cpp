@@ -33,8 +33,8 @@ bool DataCollector::collect(Payload& out, int signalDbm) {
     collectGPS(out);
     collectMEMS(out);
 
-    // Ignition inferred from voltage
-    out.ignition = (out.obd.voltage >= VOLTAGE_ACTIVE_THRESHOLD);
+    // Note: out.ignition is left false here. Callers (e.g. main.cpp) should
+    // set it from power manager state after collect() returns.
 
     return true;
 }
@@ -64,36 +64,48 @@ void DataCollector::collectOBD(Payload& out) {
 
     int v = 0;
 
+// Clamp helper: keep value in [lo, hi], discard if outside range
+#define CLAMP_PID(field, lo, hi) \
+    do { if ((v) >= (lo) && (v) <= (hi)) (field) = (v); } while (0)
+
 #ifdef COLLECT_PID_SPEED
-    if (_obd.readPID(PID_SPEED, v))        out.obd.speed        = v;
+    if (_obd.readPID(PID_SPEED, v))        CLAMP_PID(out.obd.speed,        0,   300);
 #endif
 #ifdef COLLECT_PID_RPM
-    if (_obd.readPID(PID_RPM, v))          out.obd.rpm          = v;
+    if (_obd.readPID(PID_RPM, v))          CLAMP_PID(out.obd.rpm,          0, 16383);
 #endif
 #ifdef COLLECT_PID_THROTTLE
-    if (_obd.readPID(PID_THROTTLE, v))     out.obd.throttle_pct = v;
+    if (_obd.readPID(PID_THROTTLE, v))     CLAMP_PID(out.obd.throttle_pct, 0,   100);
 #endif
 #ifdef COLLECT_PID_ENGINE_LOAD
-    if (_obd.readPID(PID_ENGINE_LOAD, v))  out.obd.engine_load  = v;
+    if (_obd.readPID(PID_ENGINE_LOAD, v))  CLAMP_PID(out.obd.engine_load,  0,   100);
 #endif
 #ifdef COLLECT_PID_COOLANT_TEMP
-    if (_obd.readPID(PID_COOLANT_TEMP, v)) out.obd.coolant_c    = v;
+    if (_obd.readPID(PID_COOLANT_TEMP, v)) CLAMP_PID(out.obd.coolant_c,  -40,   215);
 #endif
 #ifdef COLLECT_PID_INTAKE_TEMP
-    if (_obd.readPID(PID_INTAKE_TEMP, v))  out.obd.intake_temp  = v;
+    if (_obd.readPID(PID_INTAKE_TEMP, v))  CLAMP_PID(out.obd.intake_temp, -40,  215);
 #endif
 #ifdef COLLECT_PID_FUEL_LEVEL
-    if (_obd.readPID(PID_FUEL_LEVEL, v))   out.obd.fuel_pct     = v;
+    if (_obd.readPID(PID_FUEL_LEVEL, v))   CLAMP_PID(out.obd.fuel_pct,     0,   100);
 #endif
 #ifdef COLLECT_PID_RUNTIME
-    if (_obd.readPID(PID_RUNTIME, v))      out.obd.runtime      = v;
+    if (_obd.readPID(PID_RUNTIME, v))      out.obd.runtime = v; // runtime has no fixed upper bound
 #endif
+
+#undef CLAMP_PID
+
+    // Clamp raw voltage to physically plausible vehicle range
+    if (out.obd.voltage < 5.0f || out.obd.voltage > 20.0f) {
+        out.obd.voltage = 0.0f; // discard implausible reading
+    }
 }
 
 // ---------------------------------------------------------------------------
 // collectGPS
 // ---------------------------------------------------------------------------
 void DataCollector::collectGPS(Payload& out) {
+    _gnss.update(); // refresh GPS data from hardware before reading
     if (!_gnss.hasFix()) return;
     _gnss.getLocation(out.gps.lat, out.gps.lon, out.gps.alt_m,
                       out.gps.hdop, out.gps.speed_kph,

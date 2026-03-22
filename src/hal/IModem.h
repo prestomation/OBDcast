@@ -24,13 +24,16 @@ public:
     virtual void powerOff() = 0;
 
     // Send an HTTP/HTTPS POST request (TLS offloaded to modem).
-    // url:      full URL including scheme
-    // body:     request body (JSON)
-    // bodyLen:  length of body in bytes
+    // url:        full URL including scheme
+    // body:       request body (JSON)
+    // bodyLen:    length of body in bytes
     // authHeader: optional Bearer token (pass nullptr to omit)
+    // hmacSig:    optional HMAC-SHA256 hex signature (pass nullptr to omit);
+    //             sent as X-OBDcast-Signature header when non-null/non-empty
     // Returns HTTP response code, or -1 on error.
     virtual int httpPost(const char* url, const char* body, size_t bodyLen,
-                         const char* authHeader) = 0;
+                         const char* authHeader,
+                         const char* hmacSig = nullptr) = 0;
 
     // Send raw bytes over TCP (used for MQTT).
     // Returns bytes sent, or -1 on error.

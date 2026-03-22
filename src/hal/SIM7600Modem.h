@@ -23,7 +23,7 @@ public:
     void powerOff() override;
 
     int httpPost(const char* url, const char* body, size_t bodyLen,
-                 const char* authHeader) override;
+                 const char* authHeader, const char* hmacSig = nullptr) override;
 
     int  tcpSend(const uint8_t* data, size_t len) override;
     int  tcpRecv(uint8_t* buf, size_t bufLen, uint32_t timeoutMs) override;

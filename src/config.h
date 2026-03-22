@@ -37,6 +37,15 @@
 #define WEBHOOK_AUTH_TOKEN ""  // e.g., "mytoken" -> sent as "Bearer mytoken"
 #define WEBHOOK_TIMEOUT_MS 10000
 
+// Webhook HMAC signing — set to the same secret configured in ha-obdcast.
+// Leave blank ("") to disable signing (useful for local dev/testing).
+// When set, an X-OBDcast-Signature header is added to every webhook request
+// containing the HMAC-SHA256 hex digest of the JSON body.
+#define WEBHOOK_HMAC_SECRET ""
+
+// Convenience: HMAC is automatically enabled when a secret is provided.
+#define WEBHOOK_HMAC_ENABLED (sizeof(WEBHOOK_HMAC_SECRET) > 1)
+
 // =============================================================================
 // WIFI (optional — cellular fallback used when WiFi unavailable)
 // =============================================================================
@@ -75,17 +84,12 @@
 // =============================================================================
 // POWER MANAGEMENT
 // =============================================================================
-// voltage > VOLTAGE_ACTIVE_THRESHOLD  => ACTIVE (engine running)
-// VOLTAGE_STANDBY_THRESHOLD < v <= VOLTAGE_ACTIVE_THRESHOLD => STANDBY
-// voltage <= VOLTAGE_STANDBY_THRESHOLD => DEEP_SLEEP
+// Two thresholds govern the power state machine:
+//   voltage > VOLTAGE_ACTIVE_THRESHOLD              => ACTIVE (engine running)
+//   VOLTAGE_STANDBY_THRESHOLD < v <= ACTIVE_THRESH  => STANDBY
+//   voltage <= VOLTAGE_STANDBY_THRESHOLD             => DEEP_SLEEP
 #define VOLTAGE_ACTIVE_THRESHOLD    13.2f  // Engine running voltage
-#define VOLTAGE_STANDBY_THRESHOLD   12.2f  // Battery healthy threshold
-
-// Additional fine-grained thresholds from design doc
-#define VOLTAGE_BATTERY_OK          12.4f  // Normal operation
-#define VOLTAGE_BATTERY_LOW         12.0f  // Enter standby
-#define VOLTAGE_BATTERY_CRITICAL    11.5f  // Enter deep sleep
-#define VOLTAGE_BATTERY_RECOVERY    12.6f  // Safe to wake
+#define VOLTAGE_STANDBY_THRESHOLD   12.2f  // Minimum battery voltage before deep sleep
 
 #define STANDBY_IDLE_TIMEOUT_MS     3600000UL  // 1 hour before standby → deep sleep
 #define DEEP_SLEEP_WAKE_INTERVAL_S  3600       // Wake timer (1 hour)

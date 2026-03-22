@@ -8,7 +8,7 @@
 // Constructors
 // ---------------------------------------------------------------------------
 
-MQTTTransport::MQTTTransport(WiFiClient& wifiClient)
+MQTTTransport::MQTTTransport(Client& wifiClient)
     : _wifiMode(true), _wifiClient(&wifiClient), _mqtt(wifiClient) {}
 
 MQTTTransport::MQTTTransport(IModem& modem)
@@ -81,14 +81,27 @@ bool MQTTTransport::connectViaCellular() {
     }
 
     // Build MQTT 3.1.1 CONNECT packet
-    // Fixed header:   2 bytes (type + remaining length, VarInt ≤4B)
+    // Fixed header:   1 byte (type) + VarInt remaining length (≤4B)
     // Variable header: 10 bytes
-    // Payload:        2 + len(clientId)
+    // Payload:        2 + len(clientId) [+ 2+len(user) + 2+len(pass) if configured]
     size_t clientIdLen = strlen(DEVICE_ID);
+    size_t userLen = strlen(MQTT_USER);
+    size_t passLen = strlen(MQTT_PASS);
+    bool hasUser = (userLen > 0);
+    bool hasPass = (passLen > 0);
+
     uint32_t remainLen = 10 + 2 + (uint32_t)clientIdLen;
+    if (hasUser) remainLen += 2 + (uint32_t)userLen;
+    if (hasPass) remainLen += 2 + (uint32_t)passLen;
+
+    // Build connect flags byte
+    uint8_t connectFlags = 0x02; // clean session
+    if (hasUser) connectFlags |= 0x80; // username flag
+    if (hasPass) connectFlags |= 0x40; // password flag
 
     // Max packet size: 4 (fixed hdr) + 10 (var hdr) + 2 + 256 (clientId)
-    static const size_t PKT_MAX = 4 + 10 + 2 + 256;
+    //                  + 2 + 256 (user) + 2 + 256 (pass)
+    static const size_t PKT_MAX = 4 + 10 + 2 + 256 + 2 + 256 + 2 + 256;
     uint8_t pkt[PKT_MAX];
     size_t  idx = 0;
 
@@ -102,8 +115,8 @@ bool MQTTTransport::connectViaCellular() {
     pkt[idx++] = 'T'; pkt[idx++] = 'T';
     // Protocol version 4 (3.1.1)
     pkt[idx++] = 0x04;
-    // Connect flags: clean session only
-    pkt[idx++] = 0x02;
+    // Connect flags
+    pkt[idx++] = connectFlags;
     // Keep alive: 60 seconds
     pkt[idx++] = 0x00; pkt[idx++] = 60;
 
@@ -118,6 +131,32 @@ bool MQTTTransport::connectViaCellular() {
     memcpy(&pkt[idx], DEVICE_ID, clientIdLen);
     idx += clientIdLen;
 
+    // Username (if configured)
+    if (hasUser) {
+        if (idx + 2 + userLen > PKT_MAX) {
+            LOG("MQTT(Cellular): username too long");
+            _modem->tcpClose();
+            return false;
+        }
+        pkt[idx++] = (uint8_t)(userLen >> 8);
+        pkt[idx++] = (uint8_t)(userLen & 0xFF);
+        memcpy(&pkt[idx], MQTT_USER, userLen);
+        idx += userLen;
+    }
+
+    // Password (if configured)
+    if (hasPass) {
+        if (idx + 2 + passLen > PKT_MAX) {
+            LOG("MQTT(Cellular): password too long");
+            _modem->tcpClose();
+            return false;
+        }
+        pkt[idx++] = (uint8_t)(passLen >> 8);
+        pkt[idx++] = (uint8_t)(passLen & 0xFF);
+        memcpy(&pkt[idx], MQTT_PASS, passLen);
+        idx += passLen;
+    }
+
     if (_modem->tcpSend(pkt, idx) < 0) {
         LOG("MQTT(Cellular): CONNECT send failed");
         _modem->tcpClose();
@@ -125,11 +164,17 @@ bool MQTTTransport::connectViaCellular() {
     }
 
     // Read CONNACK (fixed: 4 bytes: 0x20 0x02 0x00 returnCode)
-    uint8_t ack[4];
-    int got = _modem->tcpRecv(ack, sizeof(ack), 5000);
-    if (got < 4 || ack[0] != 0x20 || ack[1] != 0x02 || ack[3] != 0x00) {
-        LOGF("MQTT(Cellular): CONNACK failed (got=%d rc=%d)", got,
-             (got >= 4) ? ack[3] : -1);
+    // TCP is a stream — loop to handle partial delivery from modem
+    uint8_t ack[4] = {};
+    int total = 0;
+    uint32_t deadline = millis() + 5000;
+    while (total < 4 && millis() < deadline) {
+        int n = _modem->tcpRecv(ack + total, 4 - total, 200);
+        if (n > 0) total += n;
+    }
+    if (total < 4 || ack[0] != 0x20 || ack[1] != 0x02 || ack[3] != 0x00) {
+        LOGF("MQTT(Cellular): CONNACK failed (got=%d rc=%d)", total,
+             (total >= 4) ? ack[3] : -1);
         _modem->tcpClose();
         return false;
     }

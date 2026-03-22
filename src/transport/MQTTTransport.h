@@ -6,6 +6,8 @@
 #ifndef NATIVE_BUILD
   #include <PubSubClient.h>
   #include <WiFiClient.h>
+  #include <WiFiClientSecure.h>
+  #include <Client.h>
   #include "../hal/IModem.h"
 #endif
 
@@ -20,8 +22,8 @@
 class MQTTTransport : public ITransport {
 public:
 #ifndef NATIVE_BUILD
-    // WiFi-backed constructor
-    explicit MQTTTransport(WiFiClient& wifiClient);
+    // WiFi-backed constructor — accepts Client& (base of WiFiClient and WiFiClientSecure)
+    explicit MQTTTransport(Client& wifiClient);
     // Cellular-backed constructor
     explicit MQTTTransport(IModem& modem);
 #else
@@ -42,7 +44,7 @@ public:
 private:
 #ifndef NATIVE_BUILD
     bool         _wifiMode = false;
-    WiFiClient*  _wifiClient = nullptr;
+    Client*      _wifiClient = nullptr;
     IModem*      _modem      = nullptr;
     PubSubClient _mqtt;
     bool         _connected  = false;
