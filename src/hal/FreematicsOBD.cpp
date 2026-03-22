@@ -4,11 +4,11 @@
 #include "../config.h"
 
 bool FreematicsOBDImpl::begin() {
-    // Initialize the OBD-II interface via FreematicsPlus
-    // The library handles protocol detection (CAN, ISO, KWP)
+    // Initialize the OBD-II interface via FreematicsPlus COBD
+    _obd.begin(_hal.link);
     byte retries = 3;
     while (retries-- > 0) {
-        if (_hal.init()) {
+        if (_obd.init()) {
             LOG("OBD: initialized");
             _connected = true;
             return true;
@@ -22,9 +22,8 @@ bool FreematicsOBDImpl::begin() {
 
 bool FreematicsOBDImpl::readPID(uint16_t pid, int& value) {
     if (!_connected) return false;
-    // FreematicsPlus uses int pid; cast is safe for standard PIDs
     int v = 0;
-    if (_hal.readPID(static_cast<byte>(pid), v)) {
+    if (_obd.readPID(static_cast<byte>(pid), v)) {
         value = v;
         return true;
     }
@@ -32,8 +31,7 @@ bool FreematicsOBDImpl::readPID(uint16_t pid, int& value) {
 }
 
 float FreematicsOBDImpl::readVoltage() {
-    // FreematicsPlus provides battery voltage via analogRead + divider
-    return _hal.getVoltage();
+    return _obd.getVoltage();
 }
 
 bool FreematicsOBDImpl::isConnected() {

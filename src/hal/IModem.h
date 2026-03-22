@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 // ---------------------------------------------------------------------------
 // IModem – Hardware Abstraction Interface for Cellular Modem

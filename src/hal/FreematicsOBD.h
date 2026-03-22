@@ -6,7 +6,7 @@
 #include <FreematicsPlus.h>
 
 // ---------------------------------------------------------------------------
-// FreematicsOBD – IOBD implementation using FreematicsPlus library
+// FreematicsOBD – IOBD implementation using FreematicsPlus COBD
 // ---------------------------------------------------------------------------
 
 class FreematicsOBDImpl : public IOBD {
@@ -20,7 +20,8 @@ public:
 
 private:
     FreematicsESP32& _hal;
-    bool _connected = false;
+    COBD             _obd;
+    bool             _connected = false;
 };
 
 #endif // !NATIVE_BUILD
