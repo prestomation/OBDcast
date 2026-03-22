@@ -3,8 +3,9 @@
 
 #ifndef NATIVE_BUILD
   #include <WiFi.h>
+  #include "hal/SIM7600Modem.h"
   // SIM7600Modem is accessed as a global singleton from main.cpp
-  extern class SIM7600Modem* gModem;
+  extern SIM7600Modem* gModem;
 #endif
 
 // ---------------------------------------------------------------------------
