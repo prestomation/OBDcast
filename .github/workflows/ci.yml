@@ -27,5 +27,5 @@ jobs:
           git clone --depth 1 https://github.com/stanleyhuangyc/Freematics.git /tmp/Freematics
       - name: Build firmware
         env:
-          PLATFORMIO_LIB_EXTRA_DIRS: /tmp/Freematics/libraries/FreematicsPlus
+          PLATFORMIO_LIB_EXTRA_DIRS: /tmp/Freematics/libraries
         run: pio run -e freematics_one_plus
