@@ -41,13 +41,25 @@ bool SDBuffer::write(const Payload& payload) {
     if (len == 0) return false;
 
 #ifndef NATIVE_BUILD
+    // Enforce max buffer size to prevent SD exhaustion
+    if (sizeBytes() >= (size_t)SD_BUFFER_MAX_SIZE_MB * 1024 * 1024) {
+        LOG("SDBuffer: max size reached, dropping oldest record");
+        // Simple policy: drop write (user should increase SD_BUFFER_MAX_SIZE_MB
+        // or reduce DATA_INTERVAL_MS if offline for extended periods)
+        return false;
+    }
+
     File f = SD.open(SD_BUFFER_FILE_PATH, FILE_APPEND);
     if (!f) {
         LOG("SDBuffer: open for write failed");
         return false;
     }
-    f.println(jsonBuf);
+    size_t written = f.println(jsonBuf);
     f.close();
+    if (written == 0) {
+        LOG("SDBuffer: write failed");
+        return false;
+    }
     _pendingCount++;
     return true;
 #else
@@ -79,11 +91,12 @@ bool SDBuffer::readNext(char* buf, size_t bufLen) {
         f.seek(_replayOffset);
     }
 
-    // Read one line
+    // Read one line, stripping \r\n so JSON parsing works correctly
     int idx = 0;
     while (f.available() && idx < (int)bufLen - 1) {
         char c = (char)f.read();
         if (c == '\n') break;
+        if (c == '\r') continue; // strip carriage returns
         buf[idx++] = c;
     }
     buf[idx] = '\0';

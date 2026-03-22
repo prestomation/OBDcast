@@ -61,6 +61,8 @@ void setup() {
     gModemOk = gModem->begin();
     if (!gModemOk) {
         LOG("Modem: init failed — continuing without cellular");
+        delete gModem;
+        gModem = nullptr;
     }
 
     // --- Connectivity ---
@@ -119,7 +121,10 @@ void setup() {
         float ax = 0.f, ay = 0.f, az = 0.f;
         mems.getAccel(ax, ay, az);
         float magnitude = mems.getMagnitude();
-        bool  motion    = (magnitude - 9.81f) > MOTION_WAKE_THRESHOLD_G;
+        // Use absolute difference from 1g (gravity) to detect real motion
+        float gravDiff = magnitude - 9.81f;
+        if (gravDiff < 0.f) gravDiff = -gravDiff;
+        bool  motion   = (gravDiff > MOTION_WAKE_THRESHOLD_G);
 
         PowerState state = power.update(voltage, motion);
         LOGF("Power: %s  V=%.2f", PowerManager::stateName(state), voltage);

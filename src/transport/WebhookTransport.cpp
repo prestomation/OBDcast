@@ -143,8 +143,14 @@ bool WebhookTransport::sendViaWiFi(const char* jsonBuf, size_t jsonLen,
     }
 
     // Send header and body separately to avoid large combined buffer
-    _wifiClient->write((const uint8_t*)header,  (size_t)hlen);
-    _wifiClient->write((const uint8_t*)jsonBuf, jsonLen);
+    // Verify each write succeeds to detect silent failures
+    size_t wh = _wifiClient->write((const uint8_t*)header,  (size_t)hlen);
+    size_t wb = _wifiClient->write((const uint8_t*)jsonBuf, jsonLen);
+    if (wh != (size_t)hlen || wb != jsonLen) {
+        LOG("Webhook(WiFi): write incomplete — connection dropped?");
+        _wifiClient->stop();
+        return false;
+    }
 
     // Read response status line and extract HTTP status code
     uint32_t start = millis();
