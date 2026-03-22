@@ -84,7 +84,10 @@ void setup() {
 
     // --- HAL subsystems ---
     FreematicsOBDImpl  obd(hal);
-    // Guard: only use GNSS if modem initialized successfully
+    // Guard: only use GNSS if modem initialized successfully.
+    // gnssPtr lifetime: lives for the duration of the main loop.
+    // Released explicitly before esp_deep_sleep_start() in the DEEP_SLEEP
+    // case (which does not return — ESP32 resets on wake).
     FreematicsGNSS*     gnssPtr  = nullptr;
     if (gModemOk) {
         gnssPtr = new FreematicsGNSS(gModem->modem());

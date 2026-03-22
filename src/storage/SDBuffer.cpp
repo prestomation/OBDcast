@@ -91,15 +91,26 @@ bool SDBuffer::readNext(char* buf, size_t bufLen) {
         f.seek(_replayOffset);
     }
 
-    // Read one line, stripping \r\n so JSON parsing works correctly
-    int idx = 0;
-    while (f.available() && idx < (int)bufLen - 1) {
+    // Read one line, stripping \r\n so JSON parsing works correctly.
+    // If a single line exceeds bufLen-1 bytes it is truncated to fit the
+    // caller's buffer — the truncated JSON will fail to parse and the
+    // caller should skip it. This is preferable to a buffer overflow.
+    int  idx      = 0;
+    bool overflow = false;
+    while (f.available()) {
         char c = (char)f.read();
         if (c == '\n') break;
         if (c == '\r') continue; // strip carriage returns
-        buf[idx++] = c;
+        if (idx < (int)bufLen - 1) {
+            buf[idx++] = c;
+        } else {
+            overflow = true; // consume but don't store
+        }
     }
     buf[idx] = '\0';
+    if (overflow) {
+        LOG("SDBuffer: readNext truncated oversized record");
+    }
     _replayOffset = f.position();
     f.close();
 

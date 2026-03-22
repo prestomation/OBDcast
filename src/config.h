@@ -1,6 +1,17 @@
 #pragma once
 
 // =============================================================================
+// CONFIGURATION SECURITY NOTE
+// =============================================================================
+// This file contains compile-time defaults. For production deployments:
+//   - Do NOT commit real credentials (WiFi passwords, MQTT passwords, tokens)
+//   - Copy config.h to config_local.h, add config_local.h to .gitignore,
+//     and include it instead; or supply credentials via NVS at runtime.
+//   - The NVS runtime override mechanism (planned) will allow changing
+//     credentials without reflashing.
+// =============================================================================
+
+// =============================================================================
 // DEVICE IDENTITY
 // =============================================================================
 #define DEVICE_ID "obdcast-001"  // Unique device identifier
