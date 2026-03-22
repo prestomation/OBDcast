@@ -43,5 +43,7 @@ private:
     WiFiClientSecure* _wifiClient = nullptr;
     IModem*           _modem      = nullptr;
     bool              _connected  = false;
+
+    bool sendViaWiFi(const char* jsonBuf, size_t jsonLen, const char* authToken);
 #endif
 };

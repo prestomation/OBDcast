@@ -48,7 +48,7 @@ private:
 
     bool connectViaCellular();
     bool connectViaWiFi();
-    bool publishViaCellular(const char* topic, const char* payload);
+    bool publishViaCellular(const char* topic, const char* payload, size_t payloadLen);
 #endif
 
     // Build topic strings

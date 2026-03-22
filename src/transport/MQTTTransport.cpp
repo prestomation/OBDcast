@@ -32,7 +32,7 @@ bool MQTTTransport::connectViaWiFi() {
     _mqtt.setServer(MQTT_BROKER, MQTT_PORT);
     _mqtt.setKeepAlive(60);
 
-    char lwt[64];
+    char lwt[128];
     makeTopic(lwt, sizeof(lwt), "status");
 
     const char* user = (strlen(MQTT_USER) > 0) ? MQTT_USER : nullptr;
@@ -52,8 +52,22 @@ bool MQTTTransport::connectViaWiFi() {
 }
 
 // ---------------------------------------------------------------------------
-// Cellular path – AT+CMQTT* commands
+// Cellular path – hand-rolled MQTT 3.1.1 CONNECT over AT TCP
 // ---------------------------------------------------------------------------
+
+// Write a MQTT variable-length integer (up to 4 bytes).
+// Returns number of bytes written.
+static size_t writeVarInt(uint8_t* buf, uint32_t value) {
+    size_t n = 0;
+    do {
+        uint8_t byte = (uint8_t)(value & 0x7F);
+        value >>= 7;
+        if (value > 0) byte |= 0x80;
+        buf[n++] = byte;
+    } while (value > 0 && n < 4);
+    return n;
+}
+
 bool MQTTTransport::connectViaCellular() {
     if (!_modem || !_modem->isConnected()) {
         LOG("MQTT(Cellular): modem not connected");
@@ -66,41 +80,57 @@ bool MQTTTransport::connectViaCellular() {
         return false;
     }
 
-    // Build and send MQTT CONNECT packet manually
-    // (Minimal MQTT 3.1.1 CONNECT)
-    uint8_t connectPkt[128];
-    size_t  idx = 0;
-    size_t  clientIdLen = strlen(DEVICE_ID);
-    uint16_t remainLen  = 10 + 2 + clientIdLen; // fixed header + client ID
+    // Build MQTT 3.1.1 CONNECT packet
+    // Fixed header:   2 bytes (type + remaining length, VarInt ≤4B)
+    // Variable header: 10 bytes
+    // Payload:        2 + len(clientId)
+    size_t clientIdLen = strlen(DEVICE_ID);
+    uint32_t remainLen = 10 + 2 + (uint32_t)clientIdLen;
 
-    connectPkt[idx++] = 0x10; // CONNECT
-    connectPkt[idx++] = (uint8_t)remainLen;
-    // Protocol name
-    connectPkt[idx++] = 0x00; connectPkt[idx++] = 0x04;
-    connectPkt[idx++] = 'M'; connectPkt[idx++] = 'Q';
-    connectPkt[idx++] = 'T'; connectPkt[idx++] = 'T';
-    // Protocol version
-    connectPkt[idx++] = 0x04;
-    // Connect flags: clean session
-    connectPkt[idx++] = 0x02;
-    // Keep alive (60 seconds)
-    connectPkt[idx++] = 0x00; connectPkt[idx++] = 60;
-    // Client ID
-    connectPkt[idx++] = (uint8_t)(clientIdLen >> 8);
-    connectPkt[idx++] = (uint8_t)(clientIdLen & 0xFF);
-    memcpy(&connectPkt[idx], DEVICE_ID, clientIdLen);
+    // Max packet size: 4 (fixed hdr) + 10 (var hdr) + 2 + 256 (clientId)
+    static const size_t PKT_MAX = 4 + 10 + 2 + 256;
+    uint8_t pkt[PKT_MAX];
+    size_t  idx = 0;
+
+    // Fixed header
+    pkt[idx++] = 0x10; // CONNECT
+    idx += writeVarInt(&pkt[idx], remainLen);
+
+    // Protocol name "MQTT"
+    pkt[idx++] = 0x00; pkt[idx++] = 0x04;
+    pkt[idx++] = 'M'; pkt[idx++] = 'Q';
+    pkt[idx++] = 'T'; pkt[idx++] = 'T';
+    // Protocol version 4 (3.1.1)
+    pkt[idx++] = 0x04;
+    // Connect flags: clean session only
+    pkt[idx++] = 0x02;
+    // Keep alive: 60 seconds
+    pkt[idx++] = 0x00; pkt[idx++] = 60;
+
+    // Client ID (length-prefixed)
+    if (idx + 2 + clientIdLen > PKT_MAX) {
+        LOG("MQTT(Cellular): client ID too long");
+        _modem->tcpClose();
+        return false;
+    }
+    pkt[idx++] = (uint8_t)(clientIdLen >> 8);
+    pkt[idx++] = (uint8_t)(clientIdLen & 0xFF);
+    memcpy(&pkt[idx], DEVICE_ID, clientIdLen);
     idx += clientIdLen;
 
-    if (_modem->tcpSend(connectPkt, idx) < 0) {
+    if (_modem->tcpSend(pkt, idx) < 0) {
         LOG("MQTT(Cellular): CONNECT send failed");
+        _modem->tcpClose();
         return false;
     }
 
-    // Read CONNACK
+    // Read CONNACK (fixed: 4 bytes: 0x20 0x02 0x00 returnCode)
     uint8_t ack[4];
-    if (_modem->tcpRecv(ack, sizeof(ack), 5000) < 4 ||
-        ack[0] != 0x20 || ack[3] != 0x00) {
-        LOG("MQTT(Cellular): CONNACK bad");
+    int got = _modem->tcpRecv(ack, sizeof(ack), 5000);
+    if (got < 4 || ack[0] != 0x20 || ack[1] != 0x02 || ack[3] != 0x00) {
+        LOGF("MQTT(Cellular): CONNACK failed (got=%d rc=%d)", got,
+             (got >= 4) ? ack[3] : -1);
+        _modem->tcpClose();
         return false;
     }
 
@@ -128,33 +158,45 @@ bool MQTTTransport::send(const Payload& payload) {
             connectViaWiFi();
         }
         _mqtt.loop();
-        bool ok = _mqtt.publish(topic, (const uint8_t*)jsonBuf, len, false);
+        bool ok = _mqtt.publish(topic, (const uint8_t*)jsonBuf, (unsigned int)len, false);
         if (!ok) {
             LOG("MQTT(WiFi): publish failed");
         }
         return ok;
     } else {
-        return publishViaCellular(topic, jsonBuf);
+        return publishViaCellular(topic, jsonBuf, len);
     }
 }
 
-bool MQTTTransport::publishViaCellular(const char* topic, const char* payload) {
-    size_t topicLen   = strlen(topic);
-    size_t payloadLen = strlen(payload);
+bool MQTTTransport::publishViaCellular(const char* topic, const char* payload,
+                                        size_t payloadLen) {
+    size_t topicLen  = strlen(topic);
+    // PUBLISH remaining length = 2 (topic len) + topicLen + payloadLen
+    // (QoS 0: no packet ID)
+    uint32_t remainLen = (uint32_t)(2 + topicLen + payloadLen);
 
-    // Build MQTT PUBLISH packet (QoS 0, no packet ID)
-    size_t pktLen = 2 + topicLen + payloadLen + 2; // header + topic len + topic + payload
-    uint8_t* pkt  = new uint8_t[pktLen + 4];
-    size_t   idx  = 0;
+    // Allocate packet on heap to support large payloads
+    // Fixed header: 1 (type) + up to 4 (VarInt remaining length)
+    size_t pktMax = 1 + 4 + 2 + topicLen + payloadLen;
+    uint8_t* pkt  = new uint8_t[pktMax];
+    if (!pkt) {
+        LOG("MQTT(Cellular): publish alloc failed");
+        return false;
+    }
 
-    pkt[idx++] = 0x30; // PUBLISH, QoS 0, no retain
-    // Variable-length remaining length (simplified: assume < 128 bytes total)
-    size_t remaining = 2 + topicLen + payloadLen;
-    pkt[idx++] = (uint8_t)(remaining & 0x7F);
+    size_t idx = 0;
+    pkt[idx++] = 0x30; // PUBLISH, QoS 0, no retain, no dup
+    idx += writeVarInt(&pkt[idx], remainLen);
+
+    // Topic (length-prefixed)
     pkt[idx++] = (uint8_t)(topicLen >> 8);
     pkt[idx++] = (uint8_t)(topicLen & 0xFF);
-    memcpy(&pkt[idx], topic, topicLen); idx += topicLen;
-    memcpy(&pkt[idx], payload, payloadLen); idx += payloadLen;
+    memcpy(&pkt[idx], topic, topicLen);
+    idx += topicLen;
+
+    // Payload
+    memcpy(&pkt[idx], payload, payloadLen);
+    idx += payloadLen;
 
     bool ok = (_modem->tcpSend(pkt, idx) > 0);
     delete[] pkt;
@@ -175,7 +217,7 @@ bool MQTTTransport::isConnected() {
 
 void MQTTTransport::end() {
     if (_wifiMode) {
-        char lwt[64];
+        char lwt[128];
         makeTopic(lwt, sizeof(lwt), "status");
         _mqtt.publish(lwt, "{\"status\":\"offline\"}", true);
         _mqtt.disconnect();

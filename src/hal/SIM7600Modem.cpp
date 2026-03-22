@@ -104,16 +104,33 @@ int SIM7600Modem::httpPost(const char* url, const char* body, size_t bodyLen,
     _modem.write((const uint8_t*)body, bodyLen);
     delay(500);
 
-    // Execute POST (method 1)
-    if (!sendAT("AT+HTTPACTION=1", "+HTTPACTION:", 30000)) {
+    // Execute POST (method 1) — wait for +HTTPACTION response
+    // Format: +HTTPACTION: 1,<status>,<data_len>
+    char actionResp[64] = {};
+    _modem.sendCommand("AT+HTTPACTION=1");
+    if (!_modem.receiveResponse(actionResp, sizeof(actionResp), 30000) ||
+        strstr(actionResp, "+HTTPACTION:") == nullptr) {
+        LOG("Modem: HTTPACTION timeout or error");
         sendAT("AT+HTTPTERM", "OK", 3000);
         return -1;
     }
 
-    // Response code is embedded in the +HTTPACTION line – return 200 as
-    // success approximation; a full impl would parse the response.
+    // Parse HTTP status code from "+HTTPACTION: 1,<code>,<len>"
+    int httpCode = -1;
+    const char* comma1 = strchr(actionResp, ',');
+    if (comma1) {
+        httpCode = atoi(comma1 + 1);
+    }
+
     sendAT("AT+HTTPTERM", "OK", 3000);
-    return 200;
+
+    if (httpCode <= 0) {
+        LOG("Modem: HTTPACTION response parse failed");
+        return -1;
+    }
+
+    LOGF("Modem: HTTP %d", httpCode);
+    return httpCode;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +139,11 @@ int SIM7600Modem::httpPost(const char* url, const char* body, size_t bodyLen,
 bool SIM7600Modem::tcpConnect(const char* host, uint16_t port, bool useTls) {
     // Use CSSLCFG to enable TLS if required
     if (useTls) {
+        // TLS 1.2 only (sslversion 3 = TLS 1.2)
         sendAT("AT+CSSLCFG=\"sslversion\",0,3", "OK", 3000);
+        // NOTE: ignorertctime=1 accepts certificates regardless of device clock.
+        // This is needed when the ESP32 clock is not yet NTP-synced on first boot.
+        // For maximum security, sync NTP before connecting and set ignorertctime=0.
         sendAT("AT+CSSLCFG=\"ignorertctime\",1,1", "OK", 3000);
     }
     char cmd[128];
