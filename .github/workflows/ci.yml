@@ -23,9 +23,10 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
       - name: Clone FreematicsPlus library
+        run: git clone --depth 1 https://github.com/stanleyhuangyc/Freematics.git /tmp/Freematics
+      - name: Add FreematicsPlus to platformio.ini
         run: |
-          git clone --depth 1 https://github.com/stanleyhuangyc/Freematics.git /tmp/Freematics
+          echo "" >> platformio.ini
+          echo "lib_extra_dirs = /tmp/Freematics/libraries/FreematicsPlus" >> platformio.ini
       - name: Build firmware
-        env:
-          PLATFORMIO_LIB_EXTRA_DIRS: /tmp/Freematics/libraries/FreematicsPlus
         run: pio run -e freematics_one_plus
