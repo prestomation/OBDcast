@@ -630,7 +630,7 @@ OBDcast depends on the [FreematicsPlus](https://github.com/stanleyhuangyc/Freema
 
 1. **US/Canada only**: The SIM7600A-H modem supports LTE bands for North America. Other regions need different modem variants.
 
-2. **No OTA updates**: Firmware updates require physical USB access. OTA may be added in v2.
+2. **No OTA updates**: Firmware updates require physical USB access via USB serial.
 
 3. **PID support varies**: Not all vehicles support all PIDs. The firmware handles missing PIDs gracefully but can't collect unavailable data.
 
@@ -645,16 +645,4 @@ OBDcast depends on the [FreematicsPlus](https://github.com/stanleyhuangyc/Freema
 - **OBD-II polling rate**: Most vehicles limit PID query rate to prevent bus congestion. 1-second interval is safe for most.
 - **GPS cold start**: First fix after deep sleep may take 30-60 seconds.
 
----
 
-## Future Considerations
-
-Potential v2 features (not in scope for initial release):
-
-- OTA firmware updates via modem
-- WiFi provisioning portal (captive portal for initial WiFi credential setup without USB)
-- Geofencing alerts
-- Trip detection and summary
-- DTC (diagnostic trouble code) reading and clearing
-- CAN bus sniffing for non-standard data
-- Integration with additional platforms beyond Home Assistant
