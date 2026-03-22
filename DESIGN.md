@@ -10,7 +10,7 @@ The firmware replaces the stock Freematics "telelogger" reference implementation
 
 - **Reliable telemetry collection**: OBD-II vehicle data, 10Hz GPS, accelerometer, battery voltage
 - **Flexible transport**: User-configurable MQTT or Webhook (HTTPS POST) output
-- **Cellular-first**: 4G LTE via SIM7600 modem with native TLS offload
+- **Flexible connectivity**: WiFi primary when available, automatic cellular fallback; cellular-only if no WiFi credentials configured
 - **Smart power management**: Tiered sleep policy to avoid draining car battery
 - **Offline resilience**: SD card buffering when connectivity is unavailable
 - **Home Assistant integration**: Designed to feed data to the `ha-obdcast` custom component
@@ -35,6 +35,7 @@ The firmware replaces the stock Freematics "telelogger" reference implementation
 ### Key Hardware Capabilities
 
 - **SIM7600 TLS offload**: The modem handles SSL/TLS natively via AT commands, avoiding ESP32 WiFiClientSecure memory constraints
+- **ESP32 built-in WiFi**: The ESP32-WROVER includes WiFi, used as primary transport when a known SSID is in range
 - **10Hz GNSS**: High-frequency position updates for accurate trip tracking
 - **Always-on power**: OBD-II port provides constant 12V, requiring intelligent sleep management
 - **CAN bus access**: Direct vehicle ECU communication for PID queries
@@ -110,6 +111,23 @@ We depend on this library rather than reimplementing hardware drivers.
 **SD Card Buffer**: Stores telemetry data during connectivity outages, replays when connection restored.
 
 **Main Loop**: Orchestrates all components, handles timing, and manages the collection/transmission cycle.
+
+---
+
+## Connectivity
+
+### WiFi + Cellular
+
+OBDcast supports both WiFi (ESP32 built-in) and cellular (SIM7600) in v1:
+
+- **WiFi primary**: When a known SSID is in range, WiFi is used first — saves power and cellular data
+- **Cellular fallback**: Automatically switches to cellular when WiFi is unavailable
+- **Cellular-only mode**: If no `WIFI_SSID` is configured, the device operates on cellular only
+- **Config**: `WIFI_SSID` and `WIFI_PASSWORD` in `config.h` (both optional)
+
+**Key use case**: An underground parking garage with WiFi but no cell signal — the device connects via WiFi and continues delivering telemetry data.
+
+TLS for WiFi transport is handled via ESP32's native SSL stack. TLS for cellular uses the SIM7600 modem's native SSL offload.
 
 ---
 
@@ -449,6 +467,12 @@ Compile-time configuration with runtime NVS overrides where noted.
 #define MOTION_DEBOUNCE_MS 500        // Motion detection debounce
 
 // =============================================================================
+// WIFI (optional — cellular fallback used when WiFi unavailable)
+// =============================================================================
+#define WIFI_SSID ""                  // Leave empty to disable WiFi (cellular-only mode)
+#define WIFI_PASSWORD ""              // WiFi password
+
+// =============================================================================
 // CELLULAR / MODEM
 // =============================================================================
 #define APN "hologram"                // Cellular APN
@@ -480,6 +504,8 @@ The following can be changed at runtime via a config command or web interface:
 | `webhook_url` | string | Webhook endpoint URL |
 | `transmit_int` | int | Transmission interval (ms) |
 | `standby_ping` | int | Standby ping interval (min) |
+| `wifi_ssid` | string | WiFi SSID (empty = cellular-only) |
+| `wifi_password` | string | WiFi password |
 
 ---
 
@@ -594,7 +620,6 @@ OBDcast depends on the [FreematicsPlus](https://github.com/stanleyhuangyc/Freema
 ### What We Don't Use
 
 - Freematics cloud integration (we use our own transport)
-- WiFi features (cellular only in v1)
 - Web dashboard (headless device)
 
 ---
@@ -603,15 +628,11 @@ OBDcast depends on the [FreematicsPlus](https://github.com/stanleyhuangyc/Freema
 
 ### v1 Scope
 
-1. **Cellular only**: No WiFi support planned for v1. The SIM7600 provides reliable WAN connectivity; WiFi adds complexity without benefit for a mobile device.
+1. **US/Canada only**: The SIM7600A-H modem supports LTE bands for North America. Other regions need different modem variants.
 
-2. **US/Canada only**: The SIM7600A-H modem supports LTE bands for North America. Other regions need different modem variants.
+2. **No OTA updates**: Firmware updates require physical USB access. OTA may be added in v2.
 
-3. **No OTA updates**: Firmware updates require physical USB access. OTA may be added in v2.
-
-4. **Single vehicle**: Each device is configured for one vehicle. Multi-vehicle requires multiple devices.
-
-5. **PID support varies**: Not all vehicles support all PIDs. The firmware handles missing PIDs gracefully but can't collect unavailable data.
+3. **PID support varies**: Not all vehicles support all PIDs. The firmware handles missing PIDs gracefully but can't collect unavailable data.
 
 ### Hardware Constraints
 
@@ -631,7 +652,7 @@ OBDcast depends on the [FreematicsPlus](https://github.com/stanleyhuangyc/Freema
 Potential v2 features (not in scope for initial release):
 
 - OTA firmware updates via modem
-- WiFi configuration portal for initial setup
+- WiFi provisioning portal (captive portal for initial WiFi credential setup without USB)
 - Geofencing alerts
 - Trip detection and summary
 - DTC (diagnostic trouble code) reading and clearing

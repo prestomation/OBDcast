@@ -7,7 +7,7 @@ ESP32 firmware for the **Freematics ONE+ Model B** that collects vehicle telemet
 OBDcast turns your Freematics ONE+ into a connected vehicle telemetry device:
 
 - **Collects**: OBD-II data (speed, RPM, fuel level, temps), GPS location, accelerometer, battery voltage
-- **Transmits**: Via MQTT or HTTPS webhooks over 4G LTE cellular
+- **Transmits**: Via MQTT or HTTPS webhooks over WiFi (primary) or 4G LTE cellular (automatic fallback)
 - **Survives offline**: Buffers data to SD card when connectivity is lost
 - **Protects your battery**: Smart power management prevents car battery drain
 
@@ -60,6 +60,10 @@ Edit `src/config.h`:
 
 // OR Webhook settings
 #define WEBHOOK_URL "https://ha.example.com/api/webhook/obdcast_secret"
+
+// WiFi (optional — cellular used as fallback or if not configured)
+#define WIFI_SSID "YourNetwork"
+#define WIFI_PASSWORD "YourPassword"
 
 // Cellular APN
 #define APN "hologram"
@@ -150,9 +154,25 @@ See [DESIGN.md](DESIGN.md) for complete configuration reference.
 - Optional Bearer token authentication
 - Works with Home Assistant webhooks, custom servers, etc.
 
-### Why SIM7600 for TLS?
+### WiFi + Cellular
 
-The SIM7600 modem handles TLS natively via AT commands. This is more reliable than ESP32 WiFiClientSecure, which has RAM constraints and stability issues with large certificates.
+OBDcast supports both WiFi and cellular:
+
+- **WiFi primary**: When a known SSID is in range, WiFi is preferred (saves power and cellular data)
+- **Cellular fallback**: Automatically switches to 4G LTE when WiFi is unavailable
+- **Cellular-only**: Leave `WIFI_SSID` empty to skip WiFi entirely
+
+Configure WiFi credentials in `config.h`:
+```cpp
+#define WIFI_SSID "YourNetwork"       // Optional — leave empty for cellular-only
+#define WIFI_PASSWORD "YourPassword"
+```
+
+A key real-world benefit: underground parking garages often have WiFi but no cell signal. OBDcast connects via WiFi and keeps delivering telemetry.
+
+### Why SIM7600 for cellular TLS?
+
+The SIM7600 modem handles TLS natively via AT commands. This is more reliable than ESP32 WiFiClientSecure for cellular connections, which has RAM constraints and stability issues with large certificates. WiFi connections use the ESP32's native SSL stack.
 
 ## Data Format
 
